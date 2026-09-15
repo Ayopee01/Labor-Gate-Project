@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Gate Demo
 
-## Getting Started
+Web Application สำหรับ Gate Ticket โดย user เลือก Market Booth Product Package Quality แล้วระบบจะส่งข้อมูลไปยัง Backend Gate API พร้อมออก ticket number อัตโนมัติ
 
-First, run the development server:
+## Tech Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- [Next.js](https://nextjs.org) 16 (App Router) + React 19 + TypeScript
+- Tailwind CSS 4
+- react-select สำหรับ form selection
+- Upstash Redis สำหรับ atomic counter ของ ticket number
+
+## Project Structure
+
+```
+src/
+  app/
+    page.tsx              หน้าแรก (ฟอร์มออก Ticket)
+    api/options/           ดึงรายการ Market/Booth/Product จาก Backend
+    api/ticket-number/      preview ticket number ถัดไป (read-only)
+    api/tickets/            ส่งข้อมูลออกใบจริง (claim ticket number แบบ atomic)
+  components/
+    GateForm.tsx            ฟอร์มหลักสำหรับกรอกข้อมูล
+    TicketResult.tsx         หน้าแสดงผลลัพธ์หลังออกใบสำเร็จ
+  lib/gatePayload.ts        สร้างและตรวจสอบ payload ก่อนส่ง
+  types/                     type ของข้อมูล Gate และฟอร์ม
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+คัดลอก `.env.example` เป็น `.env.local` แล้วกรอกค่า:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Description |
+| --- | --- |
+| `GATE_BASE_URL` | URL ของ Backend Gate API |
+| `GATE_CLIENT_ID` / `GATE_CLIENT_SECRET` | credential สำหรับ Basic Auth กับ Backend |
+| `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | เชื่อมต่อ Upstash Redis สำหรับ counter ของ ticket number กัน number ซ้ำเวลามีหลาย client ใช้งานพร้อมกัน |
 
-## Learn More
+## Usage
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+npm run dev
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+เปิด [http://localhost:3000](http://localhost:3000)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+คำสั่งอื่น: `npm run build` (build production), `npm run start` (start production build), `npm run lint` (lint โค้ด)

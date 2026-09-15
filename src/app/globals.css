@@ -1,26 +1,106 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --gate-bg-gradient-start: #fdfbfb;
+  --gate-bg-gradient-end: #ebedee;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+@theme {
+  --color-primary: #d32f2f;
+  --color-primary-hover: #b71c1c;
+  --color-primary-light: #ffebee;
+  --color-secondary: #2e7d32;
+  --color-secondary-light: #e8f5e9;
+  --color-text-dark: #2d3748;
+  --color-text-gray: #4a5568;
+  --color-text-light: #a0aec0;
+  --color-border: #e2e8f0;
+  --color-card-bg: #ffffff;
+  --color-danger: #e53e3e;
+  --font-sans: var(--font-kanit);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: linear-gradient(135deg, var(--gate-bg-gradient-start) 0%, var(--gate-bg-gradient-end) 100%);
+  min-height: 100vh;
+  color: var(--color-text-dark);
+}
+
+@layer components {
+  .gate-card {
+    @apply w-full max-w-[650px] rounded-3xl bg-card-bg p-10 shadow-[0_20px_40px_rgba(0,0,0,0.08),0_1px_3px_rgba(0,0,0,0.05)] max-[500px]:p-8;
+  }
+
+  .gate-header {
+    @apply mb-8 border-b-2 border-dashed border-border pb-5 text-center;
+  }
+
+  .gate-header h2 {
+    @apply text-[2.2rem] font-bold text-primary;
+  }
+
+  .gate-header p {
+    @apply mt-2 text-lg text-text-gray;
+  }
+
+  .gate-field-label {
+    @apply mb-2 block text-lg font-medium text-text-dark;
+  }
+
+  .gate-input {
+    @apply w-full rounded-xl border-2 border-border bg-[#f7fafc] px-5 py-4 text-lg text-text-dark outline-none transition focus:border-primary focus:bg-white focus:shadow-[0_0_0_4px_rgba(211,47,47,0.1)];
+  }
+
+  .gate-booth-group {
+    @apply rounded-[18px] border-2 border-primary-light bg-[#fdfdfd] p-6;
+  }
+
+  .gate-booth-group-header {
+    @apply mb-4 flex items-center justify-between text-xl font-semibold text-primary;
+  }
+
+  .gate-item-card {
+    @apply rounded-2xl border-2 border-border bg-white p-6 transition hover:border-[#cbd5e0] hover:shadow-[0_4px_12px_rgba(0,0,0,0.05)];
+  }
+
+  .gate-item-header {
+    @apply mb-4 flex items-center justify-between text-xl font-semibold text-text-dark;
+  }
+
+  .gate-remove-btn {
+    @apply rounded-lg px-3 py-2 text-base font-medium text-danger transition hover:bg-[#fff5f5];
+  }
+
+  .gate-add-btn {
+    @apply mt-5 w-full rounded-xl border-2 border-dashed border-primary bg-transparent py-4 text-xl font-semibold text-primary transition hover:bg-primary-light;
+  }
+
+  .gate-submit-btn {
+    @apply mt-8 w-full rounded-2xl bg-gradient-to-br from-primary to-primary-hover py-5 text-2xl font-semibold text-white shadow-[0_6px_16px_rgba(211,47,47,0.3)] transition hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(211,47,47,0.4)] disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0;
+  }
+
+  .gate-json-preview {
+    @apply mt-6 rounded-xl bg-[#2d3748] p-4 text-left font-mono text-[0.95rem] text-[#e2e8f0];
+  }
+
+  .gate-btn {
+    @apply flex-1 rounded-2xl px-4 py-[18px] text-center text-xl font-semibold transition;
+  }
+
+  .gate-btn-primary {
+    @apply bg-primary text-white shadow-[0_6px_16px_rgba(211,47,47,0.25)] hover:-translate-y-0.5 hover:bg-primary-hover hover:shadow-[0_8px_20px_rgba(211,47,47,0.35)];
+  }
+
+  .gate-btn-outline {
+    @apply border-2 border-border bg-white text-text-dark hover:border-text-gray hover:bg-[#f8fafc];
+  }
+
+  .gate-section-title {
+    @apply mb-4 flex items-center gap-2.5 text-xl font-semibold text-text-dark;
+  }
+
+  .gate-section-title::before {
+    content: "";
+    @apply block h-[22px] w-[5px] rounded bg-primary;
+  }
 }
