@@ -347,6 +347,10 @@ function JsonPreview({ data }: { data: unknown }) {
       <pre className="m-0 overflow-x-auto whitespace-pre-wrap break-words">
         {JSON.stringify(data, null, 2)}
       </pre>
+      <div className="mt-2 text-xs text-[#a0aec0]">
+        * TicketNumber/TicketNo ที่เห็นด้านบนเป็นแค่เลขตัวอย่าง (ถ้ากดยืนยันตอนนี้จะได้เลขนี้) ยังไม่ได้ถูกจองจริง
+        เลขจริงจะถูกออกให้ตอนกดยืนยันส่งข้อมูลเท่านั้น จึงอาจเห็นเลขเดิมซ้ำกันได้ถ้าเปิดหลายเบราว์เซอร์พร้อมกันโดยยังไม่กดส่ง
+      </div>
     </div>
   );
 }
