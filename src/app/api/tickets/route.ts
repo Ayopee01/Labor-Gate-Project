@@ -33,8 +33,8 @@ export async function POST(request: NextRequest) {
 
   try {
     for (const market of body.Markets) {
-      // TicketNo อิงตามตลาดเสมอ (นับแยกเป็นตัวนับต่อตลาด) — 1 ตลาดมีได้หลายแผงแต่ได้ TicketNo เดียว
-      const ticketNo = await claimTicketNo(redis, market.MarketCode);
+      // TicketNo เป็นตัวนับกลางตัวเดียวรวมทุกตลาด — 1 ตลาดมีได้หลายแผงแต่ได้ TicketNo เดียว
+      const ticketNo = await claimTicketNo(redis);
 
       const payload: TicketPayload = {
         TicketNumber: ticketNumber,

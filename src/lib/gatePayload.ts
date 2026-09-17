@@ -24,18 +24,19 @@ export function buildTicketBatchRequest(marketGroups: MarketGroupFormState[]): T
 }
 
 // ต่อ TicketNumber/TicketNo แบบ preview เข้ากับ request จริง ไว้โชว์ใน JSON Preview เท่านั้น —
-// ค่าจริงถูกกำหนดที่ /api/tickets เสมอ ไม่ได้อิงจากค่าที่ preview ตรงนี้
+// ค่าจริงถูกกำหนดที่ /api/tickets เสมอ ไม่ได้อิงจากค่าที่ preview ตรงนี้ — TicketNo เป็นตัวนับกลาง
+// ตัวเดียวรวมทุกตลาด จึงต้องอิงตาม "ลำดับ" ของตลาดในบิลนี้ (previewTicketNoList[i] คู่กับ marketGroups[i])
 export function buildPreviewPayload(
   marketGroups: MarketGroupFormState[],
   previewTicketNumber: string,
-  previewTicketNoByMarket: Record<string, string>,
+  previewTicketNoList: string[],
 ) {
   const batch = buildTicketBatchRequest(marketGroups);
   return {
     TicketNumber: previewTicketNumber,
     ...batch,
-    Markets: batch.Markets.map((market) => ({
-      TicketNo: previewTicketNoByMarket[market.MarketCode] ?? "",
+    Markets: batch.Markets.map((market, index) => ({
+      TicketNo: previewTicketNoList[index] ?? "",
       ...market,
     })),
   };

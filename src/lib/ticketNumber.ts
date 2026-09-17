@@ -55,22 +55,24 @@ export function previewRandomTicketNumber(): string {
   return randomTicketNumber();
 }
 
-function ticketNoCounterKey(marketCode: string): string {
-  return `ticket-no-counter:${getBangkokDateStr()}:${marketCode}`;
+function ticketNoCounterKey(): string {
+  return `ticket-no-counter:${getBangkokDateStr()}`;
 }
 
-// ดูเลขที่ "ถ้าจะออกใบตอนนี้" เฉย ๆ ไว้โชว์ preview อ่านอย่างเดียว ไม่หักตัวนับจริง
-export async function peekNextTicketNo(redis: Redis, marketCode: string): Promise<string> {
+// ดูเลขที่ "ถ้าจะออกใบตอนนี้" เฉย ๆ ไว้โชว์ preview อ่านอย่างเดียว ไม่หักตัวนับจริง — คืนมาเป็น
+// array ต่อเนื่องกัน `count` ตัว (เท่ากับจำนวนตลาดที่กำลังจะยิงพร้อมกันในบิลเดียว) เพราะ TicketNo
+// เป็นตัวนับกลางตัวเดียวรวมทุกตลาด (ไม่แยกตามตลาด) เวลา submit จริงจะไล่ claim ทีละตลาดตามลำดับ
+export async function peekNextTicketNos(redis: Redis, count: number): Promise<string[]> {
   const dateStr = getBangkokDateStr();
-  const current = (await redis.get<number>(ticketNoCounterKey(marketCode))) ?? 0;
-  return `${dateStr}${String(current + 1).padStart(6, "0")}`;
+  const current = (await redis.get<number>(ticketNoCounterKey())) ?? 0;
+  return Array.from({ length: count }, (_, i) => `${dateStr}${String(current + i + 1).padStart(6, "0")}`);
 }
 
-// หักตัวนับแบบ atomic (Redis INCR) ต่อตลาดแยกกัน — TicketNo อิงตามตลาดเดียวเสมอ
-// (1 ตลาดมีได้หลายแผง จึงนับรวมเป็น 1 TicketNo ต่อการยิง 1 ตลาด)
-export async function claimTicketNo(redis: Redis, marketCode: string): Promise<string> {
+// หักตัวนับแบบ atomic (Redis INCR) เป็นตัวนับกลางตัวเดียวรวมทุกตลาดในแต่ละวัน — ทุกใบที่ออกจริง
+// (ไม่ว่าจะตลาดไหน) ได้เลขถัดไปเสมอ ไม่มีการรีเซ็ตตามตลาด
+export async function claimTicketNo(redis: Redis): Promise<string> {
   const dateStr = getBangkokDateStr();
-  const key = ticketNoCounterKey(marketCode);
+  const key = ticketNoCounterKey();
   const seq = await redis.incr(key);
   await redis.expire(key, 60 * 60 * 48);
   return `${dateStr}${String(seq).padStart(6, "0")}`;

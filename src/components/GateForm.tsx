@@ -373,7 +373,7 @@ function GateForm() {
   const [optionsError, setOptionsError] = useState(false);
 
   const [previewTicketNumber, setPreviewTicketNumber] = useState("");
-  const [previewTicketNoByMarket, setPreviewTicketNoByMarket] = useState<Record<string, string>>({});
+  const [previewTicketNoList, setPreviewTicketNoList] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   const activeMarketCodes = useMemo(
@@ -382,15 +382,15 @@ function GateForm() {
   );
   const activeMarketCodesKey = activeMarketCodes.join(",");
 
-  async function refreshPreviewTicketNumber(marketCodes: string[]) {
+  // TicketNo เป็นตัวนับกลางตัวเดียวรวมทุกตลาด — preview จึงต้องขอ "เลขถัดไป N ตัว" ตามจำนวน
+  // ตลาดในบิลนี้ (N = marketGroups.length) ไม่ได้อิงกับ MarketCode ไหนโดยเฉพาะอีกต่อไป
+  async function refreshPreviewTicketNumber(count: number) {
     try {
-      const params = new URLSearchParams();
-      marketCodes.forEach((code) => params.append("MarketCode", code));
-      const res = await fetch(`/api/ticket-number?${params.toString()}`);
+      const res = await fetch(`/api/ticket-number?count=${Math.max(count, 1)}`);
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const data = await res.json();
       setPreviewTicketNumber(data.ticketNumber ?? "");
-      setPreviewTicketNoByMarket(data.ticketNoByMarket ?? {});
+      setPreviewTicketNoList(data.ticketNoPreview ?? []);
     } catch (e) {
       console.warn("Could not load ticket number preview", e);
     }
@@ -420,13 +420,12 @@ function GateForm() {
   }, []);
 
   // ดึงเลขที่ใบสำหรับ preview จากตัวนับฝั่ง server (กันไม่ให้เลขซ้ำข้ามเครื่อง/ข้าม browser)
-  // ทุกครั้งที่ชุดตลาดที่เลือกอยู่เปลี่ยนไป (TicketNo อิงตามตลาด จึงต้องขอ preview ใหม่ต่อตลาด)
+  // ทุกครั้งที่จำนวนตลาดในบิลนี้เปลี่ยนไป (TicketNo เป็นตัวนับกลาง ไม่ได้อิงกับ MarketCode ไหนโดยเฉพาะ)
   useEffect(() => {
     (async () => {
-      await refreshPreviewTicketNumber(activeMarketCodes);
+      await refreshPreviewTicketNumber(marketGroups.length);
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeMarketCodesKey]);
+  }, [marketGroups.length]);
 
   // โหลดรายการแผง (Booths) ของทุกตลาดที่ถูกเลือกอยู่ตอนนี้ แต่ยังไม่เคยโหลด/กำลังโหลดอยู่
   useEffect(() => {
@@ -461,8 +460,8 @@ function GateForm() {
   }, [activeMarketCodesKey]);
 
   const jsonPreview = useMemo(
-    () => buildPreviewPayload(marketGroups, previewTicketNumber, previewTicketNoByMarket),
-    [marketGroups, previewTicketNumber, previewTicketNoByMarket],
+    () => buildPreviewPayload(marketGroups, previewTicketNumber, previewTicketNoList),
+    [marketGroups, previewTicketNumber, previewTicketNoList],
   );
 
   const marketOptions: GateOption[] = markets.map((m) => ({
@@ -567,7 +566,7 @@ function GateForm() {
         onBack={() => {
           setBatchResult(null);
           // ใบก่อนหน้าหักตัวนับไปแล้ว ต้องดึงเลข preview ใหม่ก่อนกรอกใบถัดไป
-          refreshPreviewTicketNumber(activeMarketCodes);
+          refreshPreviewTicketNumber(marketGroups.length);
         }}
       />
     );
