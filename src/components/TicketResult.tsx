@@ -1,6 +1,6 @@
 "use client";
 
-import type { TicketResult as TicketResultData } from "@/types/gate";
+import type { TicketBatchResponse, TicketResult as TicketResultData } from "@/types/gate";
 
 function InfoRow({
   label,
@@ -21,28 +21,18 @@ function InfoRow({
   );
 }
 
-interface TicketResultProps {
-  data: TicketResultData;
-  onBack: () => void;
-}
-
-function TicketResult({ data, onBack }: TicketResultProps) {
+function TicketBill({ data, breakAfter }: { data: TicketResultData; breakAfter: boolean }) {
   const ticket = data.Ticket ?? {};
   const market = data.Market ?? {};
   const booths = data.Booths ?? [];
   const qrToken = data.Qr?.DriverQrToken;
 
   return (
-    <div className="gate-card">
-      <div className="gate-header">
-        <h2>สรุปรายการสำเร็จ</h2>
-        <p>รายละเอียดข้อมูลที่บันทึกเข้าระบบ</p>
-      </div>
-
+    <div className={breakAfter ? "gate-ticket-page-break" : undefined}>
       <div className="mb-8 flex flex-col gap-3 rounded-2xl border-2 border-border p-5 text-lg">
         <InfoRow label="ตลาด:" value={market.MarketName ? `${market.MarketName} (${market.MarketCode ?? ""})` : "-"} />
         <InfoRow label="จุดจอดส่งสินค้า:" value={market.DropoffPoint || "-"} bordered emphasize />
-        <InfoRow label="เลขที่ใบ:" value={data.TicketNumber || ticket.TicketNo || "-"} bordered emphasize />
+        <InfoRow label="เลขที่ใบ (TicketNo):" value={ticket.TicketNo || "-"} bordered emphasize />
         <InfoRow label="สถานะ:" value={ticket.Status || "-"} bordered emphasize />
         <InfoRow
           label="รถขนส่ง:"
@@ -105,13 +95,43 @@ function TicketResult({ data, onBack }: TicketResultProps) {
           <div className="break-all rounded-2xl border-2 border-border bg-white p-5 font-mono text-sm">{qrToken}</div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface TicketResultProps {
+  data: TicketBatchResponse;
+  onBack: () => void;
+}
+
+function TicketResult({ data, onBack }: TicketResultProps) {
+  const results = data.Results ?? [];
+
+  return (
+    <div className="gate-card">
+      <div className="gate-header">
+        <h2>สรุปรายการสำเร็จ</h2>
+        <p>รายละเอียดข้อมูลที่บันทึกเข้าระบบ</p>
+      </div>
+
+      <div className="mb-8 rounded-2xl border-2 border-primary-light bg-primary-light p-5 text-center">
+        <div className="text-lg font-medium text-text-gray">เลขที่บิล (TicketNumber)</div>
+        <div className="text-[1.8rem] font-bold text-primary">{data.TicketNumber || "-"}</div>
+        {results.length > 1 && (
+          <div className="mt-1 text-base text-text-gray">บิลนี้มี {results.length} ใบ แยกตามตลาด</div>
+        )}
+      </div>
+
+      {results.map((result, index) => (
+        <TicketBill key={index} data={result} breakAfter={index < results.length - 1} />
+      ))}
 
       <div className="mt-10 flex gap-4 max-[500px]:flex-col">
         <button type="button" className="gate-btn gate-btn-outline" onClick={onBack}>
           กลับไปหน้ากรอกข้อมูล
         </button>
         <button type="button" className="gate-btn gate-btn-primary" onClick={() => window.print()}>
-          พิมพ์ใบสรุปรายการ
+          {results.length > 1 ? `พิมพ์ใบสรุปรายการ (${results.length} ใบ)` : "พิมพ์ใบสรุปรายการ"}
         </button>
       </div>
     </div>

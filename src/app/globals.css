@@ -104,3 +104,10 @@ body {
     @apply block h-[22px] w-[5px] rounded bg-primary;
   }
 }
+
+/* บิลเดียวกันแต่หลายตลาด ให้พิมพ์แยกใบ (แยกหน้ากระดาษ) ต่อตลาด */
+@media print {
+  .gate-ticket-page-break {
+    break-after: page;
+  }
+}

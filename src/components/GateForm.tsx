@@ -3,9 +3,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import Select, { type SingleValue } from "react-select";
 import TicketResultView from "@/components/TicketResult";
-import { buildTicketPayload, validateBooths } from "@/lib/gatePayload";
-import { createEmptyBooth, createEmptyItem, type BoothFormState, type ItemFormState } from "@/types/gateForm";
-import type { GateBooth, GateMarket, GateProduct, TicketResult } from "@/types/gate";
+import { buildPreviewPayload, buildTicketBatchRequest, validateMarketGroups } from "@/lib/gatePayload";
+import {
+  createEmptyBooth,
+  createEmptyItem,
+  createEmptyMarketGroup,
+  type BoothFormState,
+  type ItemFormState,
+  type MarketGroupFormState,
+} from "@/types/gateForm";
+import type { GateBooth, GateMarket, GateProduct, TicketBatchResponse } from "@/types/gate";
 
 interface GateOption {
   value: string;
@@ -240,6 +247,97 @@ function BoothGroupCard({
   );
 }
 
+function MarketGroupCard({
+  group,
+  index,
+  products,
+  marketOptions,
+  marketOptionsLoading,
+  marketPlaceholder,
+  boothOptions,
+  boothOptionsLoading,
+  boothOptionsPlaceholder,
+  canRemove,
+  onMarketChange,
+  onBoothsChange,
+  onRemove,
+}: {
+  group: MarketGroupFormState;
+  index: number;
+  products: GateProduct[];
+  marketOptions: GateOption[];
+  marketOptionsLoading: boolean;
+  marketPlaceholder: string;
+  boothOptions: GateOption[];
+  boothOptionsLoading: boolean;
+  boothOptionsPlaceholder: string;
+  canRemove: boolean;
+  onMarketChange: (marketCode: string) => void;
+  onBoothsChange: (booths: BoothFormState[]) => void;
+  onRemove: () => void;
+}) {
+  function updateBooth(boothId: string, patch: Partial<BoothFormState>) {
+    onBoothsChange(group.booths.map((b) => (b.id === boothId ? { ...b, ...patch } : b)));
+  }
+
+  function removeBooth(boothId: string) {
+    onBoothsChange(group.booths.filter((b) => b.id !== boothId));
+  }
+
+  function addBooth() {
+    onBoothsChange([...group.booths, createEmptyBooth()]);
+  }
+
+  return (
+    <div className="rounded-[22px] border-2 border-dashed border-primary/40 p-6">
+      <div className="mb-4 flex items-center justify-between text-xl font-bold text-primary">
+        <span>
+          ตลาดที่ <span>{index + 1}</span>
+        </span>
+        {canRemove && (
+          <button type="button" className="gate-remove-btn" tabIndex={-1} onClick={onRemove}>
+            ลบตลาด
+          </button>
+        )}
+      </div>
+
+      <div className="mb-6">
+        <label className="gate-field-label">เลือกประเภทตลาด (Market)</label>
+        <GateSelect
+          instanceId={`market-${group.id}`}
+          options={marketOptions}
+          value={group.marketCode}
+          placeholder={marketPlaceholder}
+          isLoading={marketOptionsLoading}
+          isDisabled={marketOptionsLoading || marketOptions.length === 0}
+          onChange={onMarketChange}
+        />
+      </div>
+
+      <div className="flex flex-col gap-6">
+        {group.booths.map((booth, boothIndex) => (
+          <BoothGroupCard
+            key={booth.id}
+            booth={booth}
+            index={boothIndex}
+            products={products}
+            boothOptions={boothOptions}
+            boothOptionsLoading={boothOptionsLoading}
+            boothOptionsPlaceholder={boothOptionsPlaceholder}
+            canRemove={group.booths.length > 1}
+            onChange={(patch) => updateBooth(booth.id, patch)}
+            onRemove={() => removeBooth(booth.id)}
+          />
+        ))}
+      </div>
+
+      <button type="button" className="gate-add-btn" onClick={addBooth}>
+        + เพิ่มแผง
+      </button>
+    </div>
+  );
+}
+
 function JsonPreview({ data }: { data: unknown }) {
   return (
     <div className="gate-json-preview">
@@ -254,28 +352,41 @@ function JsonPreview({ data }: { data: unknown }) {
 }
 
 function GateForm() {
-  const [ticketResult, setTicketResult] = useState<TicketResult | null>(null);
+  const [batchResult, setBatchResult] = useState<TicketBatchResponse | null>(null);
 
   const [markets, setMarkets] = useState<GateMarket[]>([]);
   const [products, setProducts] = useState<GateProduct[]>([]);
-  const [booths, setBooths] = useState<GateBooth[]>([]);
-  const [marketCode, setMarketCode] = useState("");
-  const [boothList, setBoothList] = useState<BoothFormState[]>(() => [createEmptyBooth("booth-1")]);
+  const [marketGroups, setMarketGroups] = useState<MarketGroupFormState[]>(() => [
+    createEmptyMarketGroup("market-1"),
+  ]);
+
+  // แคช options ของแผงต่อตลาด (คนละตลาดในบิลเดียวกันมีรายการแผงคนละชุด)
+  const [boothOptionsByMarket, setBoothOptionsByMarket] = useState<Record<string, GateBooth[]>>({});
+  const [boothsLoadingSet, setBoothsLoadingSet] = useState<Set<string>>(new Set());
+  const [boothsErrorSet, setBoothsErrorSet] = useState<Set<string>>(new Set());
 
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [optionsError, setOptionsError] = useState(false);
-  const [boothsLoading, setBoothsLoading] = useState(false);
-  const [boothsError, setBoothsError] = useState(false);
 
   const [previewTicketNumber, setPreviewTicketNumber] = useState("");
+  const [previewTicketNoByMarket, setPreviewTicketNoByMarket] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  async function refreshPreviewTicketNumber() {
+  const activeMarketCodes = useMemo(
+    () => Array.from(new Set(marketGroups.map((g) => g.marketCode).filter(Boolean))),
+    [marketGroups],
+  );
+  const activeMarketCodesKey = activeMarketCodes.join(",");
+
+  async function refreshPreviewTicketNumber(marketCodes: string[]) {
     try {
-      const res = await fetch("/api/ticket-number");
+      const params = new URLSearchParams();
+      marketCodes.forEach((code) => params.append("MarketCode", code));
+      const res = await fetch(`/api/ticket-number?${params.toString()}`);
       if (!res.ok) throw new Error(`Error ${res.status}`);
       const data = await res.json();
       setPreviewTicketNumber(data.ticketNumber ?? "");
+      setPreviewTicketNoByMarket(data.ticketNoByMarket ?? {});
     } catch (e) {
       console.warn("Could not load ticket number preview", e);
     }
@@ -305,49 +416,49 @@ function GateForm() {
   }, []);
 
   // ดึงเลขที่ใบสำหรับ preview จากตัวนับฝั่ง server (กันไม่ให้เลขซ้ำข้ามเครื่อง/ข้าม browser)
+  // ทุกครั้งที่ชุดตลาดที่เลือกอยู่เปลี่ยนไป (TicketNo อิงตามตลาด จึงต้องขอ preview ใหม่ต่อตลาด)
   useEffect(() => {
     (async () => {
-      await refreshPreviewTicketNumber();
+      await refreshPreviewTicketNumber(activeMarketCodes);
     })();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMarketCodesKey]);
 
-  // เมื่อเปลี่ยนตลาด ให้โหลดรายการแผง (Booths) ของตลาดนั้นใหม่
+  // โหลดรายการแผง (Booths) ของทุกตลาดที่ถูกเลือกอยู่ตอนนี้ แต่ยังไม่เคยโหลด/กำลังโหลดอยู่
   useEffect(() => {
-    if (!marketCode) {
-      return;
-    }
+    const toFetch = activeMarketCodes.filter(
+      (code) => !(code in boothOptionsByMarket) && !boothsLoadingSet.has(code),
+    );
+    if (toFetch.length === 0) return;
 
-    let cancelled = false;
-    // Flip the loading flag before the fetch kicks off; this is the standard
-    // "start loading" signal for an in-flight request triggered by marketCode changing.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setBoothsLoading(true);
-    setBoothsError(false);
-    (async () => {
-      try {
-        const res = await fetch(`/api/options?MarketCode=${encodeURIComponent(marketCode)}`);
-        if (!res.ok) throw new Error(`Error ${res.status}`);
-        const data = await res.json();
-        if (cancelled) return;
-        setBooths(data.Booths || []);
-      } catch (e) {
-        console.warn("Could not load booths for market", marketCode, e);
-        if (!cancelled) {
-          setBooths([]);
-          setBoothsError(true);
+    setBoothsLoadingSet((prev) => new Set([...prev, ...toFetch]));
+    toFetch.forEach((code) => {
+      (async () => {
+        try {
+          const res = await fetch(`/api/options?MarketCode=${encodeURIComponent(code)}`);
+          if (!res.ok) throw new Error(`Error ${res.status}`);
+          const data = await res.json();
+          setBoothOptionsByMarket((prev) => ({ ...prev, [code]: data.Booths || [] }));
+        } catch (e) {
+          console.warn("Could not load booths for market", code, e);
+          setBoothOptionsByMarket((prev) => ({ ...prev, [code]: [] }));
+          setBoothsErrorSet((prev) => new Set([...prev, code]));
+        } finally {
+          setBoothsLoadingSet((prev) => {
+            const next = new Set(prev);
+            next.delete(code);
+            return next;
+          });
         }
-      } finally {
-        if (!cancelled) setBoothsLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [marketCode]);
+      })();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMarketCodesKey]);
 
   const jsonPreview = useMemo(
-    () => buildTicketPayload(marketCode, boothList, previewTicketNumber),
-    [marketCode, boothList, previewTicketNumber],
+    () => buildPreviewPayload(marketGroups, previewTicketNumber, previewTicketNoByMarket),
+    [marketGroups, previewTicketNumber, previewTicketNoByMarket],
   );
 
   const marketOptions: GateOption[] = markets.map((m) => ({
@@ -363,43 +474,56 @@ function GateForm() {
         ? "-- ไม่พบข้อมูลตลาด --"
         : "-- เลือกตลาด --";
 
-  const boothOptions: GateOption[] = booths.map((b) => ({
-    value: b.BoothCode,
-    label: `${b.BoothName ?? ""} (${b.BoothCode})`.trim(),
-  }));
-
-  const boothPlaceholder = !marketCode
-    ? "-- กรุณาเลือกตลาดก่อน --"
-    : boothsError
-      ? "-- ไม่สามารถโหลดข้อมูลแผงได้ --"
-      : boothOptions.length === 0 && !boothsLoading
-        ? "-- ไม่พบแผงที่ใช้งานได้ในตลาดนี้ --"
-        : "-- เลือกแผง --";
-
-  function handleMarketChange(code: string) {
-    setMarketCode(code);
-    // ล้างรหัสแผงที่เคยเลือกไว้ เพราะรายการแผงจะเปลี่ยนไปตามตลาดใหม่
-    setBoothList((prev) => prev.map((b) => ({ ...b, boothCode: "" })));
-    setBooths([]);
-    setBoothsError(false);
+  function marketOptionsForGroup(groupId: string): GateOption[] {
+    const takenByOthers = new Set(
+      marketGroups.filter((g) => g.id !== groupId && g.marketCode).map((g) => g.marketCode),
+    );
+    return marketOptions.filter((opt) => !takenByOthers.has(opt.value));
   }
 
-  function updateBooth(id: string, patch: Partial<BoothFormState>) {
-    setBoothList((prev) => prev.map((b) => (b.id === id ? { ...b, ...patch } : b)));
+  function boothOptionsForGroup(group: MarketGroupFormState): GateOption[] {
+    return (boothOptionsByMarket[group.marketCode] ?? []).map((b) => ({
+      value: b.BoothCode,
+      label: `${b.BoothName ?? ""} (${b.BoothCode})`.trim(),
+    }));
   }
 
-  function removeBooth(id: string) {
-    setBoothList((prev) => prev.filter((b) => b.id !== id));
+  function boothPlaceholderForGroup(group: MarketGroupFormState): string {
+    if (!group.marketCode) return "-- กรุณาเลือกตลาดก่อน --";
+    if (boothsErrorSet.has(group.marketCode)) return "-- ไม่สามารถโหลดข้อมูลแผงได้ --";
+    const loaded = boothOptionsByMarket[group.marketCode];
+    if ((loaded?.length ?? 0) === 0 && !boothsLoadingSet.has(group.marketCode)) {
+      return "-- ไม่พบแผงที่ใช้งานได้ในตลาดนี้ --";
+    }
+    return "-- เลือกแผง --";
   }
 
-  function addBooth() {
-    setBoothList((prev) => [...prev, createEmptyBooth()]);
+  function updateMarketGroup(id: string, patch: Partial<MarketGroupFormState>) {
+    setMarketGroups((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g)));
+  }
+
+  function handleMarketCodeChange(groupId: string, code: string) {
+    setMarketGroups((prev) =>
+      prev.map((g) =>
+        g.id === groupId
+          ? { ...g, marketCode: code, booths: g.booths.map((b) => ({ ...b, boothCode: "" })) }
+          : g,
+      ),
+    );
+  }
+
+  function addMarketGroup() {
+    setMarketGroups((prev) => [...prev, createEmptyMarketGroup()]);
+  }
+
+  function removeMarketGroup(id: string) {
+    setMarketGroups((prev) => prev.filter((g) => g.id !== id));
   }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
 
-    const validationError = validateBooths(marketCode, boothList);
+    const validationError = validateMarketGroups(marketGroups);
     if (validationError) {
       alert(validationError);
       return;
@@ -407,9 +531,9 @@ function GateForm() {
 
     setSubmitting(true);
     try {
-      // previewTicketNumber เป็นแค่ค่า preview — /api/tickets จะหักเลขจริงแบบ atomic แล้ว
-      // override ทับให้เองเสมอ กันเลขซ้ำเวลามีคนกดพร้อมกันจากหลายเครื่อง
-      const payload = buildTicketPayload(marketCode, boothList, previewTicketNumber);
+      // TicketNumber/TicketNo ที่ preview ไว้เป็นแค่ตัวอย่าง — /api/tickets จะสุ่ม TicketNumber และ
+      // หัก TicketNo จริงแบบ atomic ให้เองเสมอ กันเลขซ้ำ/เลขชนเวลามีคนกดพร้อมกันจากหลายเครื่อง
+      const payload = buildTicketBatchRequest(marketGroups);
       const response = await fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -421,8 +545,8 @@ function GateForm() {
         throw new Error(`Error ${response.status}: ${errText}`);
       }
 
-      const apiResponse: TicketResult = await response.json();
-      setTicketResult(apiResponse);
+      const apiResponse: TicketBatchResponse = await response.json();
+      setBatchResult(apiResponse);
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : String(error);
@@ -432,14 +556,14 @@ function GateForm() {
     }
   }
 
-  if (ticketResult) {
+  if (batchResult) {
     return (
       <TicketResultView
-        data={ticketResult}
+        data={batchResult}
         onBack={() => {
-          setTicketResult(null);
+          setBatchResult(null);
           // ใบก่อนหน้าหักตัวนับไปแล้ว ต้องดึงเลข preview ใหม่ก่อนกรอกใบถัดไป
-          refreshPreviewTicketNumber();
+          refreshPreviewTicketNumber(activeMarketCodes);
         }}
       />
     );
@@ -453,38 +577,29 @@ function GateForm() {
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="mb-6 border-b-2 border-dashed border-border pb-6">
-          <label className="gate-field-label text-primary">เลือกประเภทตลาด (Market)</label>
-          <GateSelect
-            instanceId="market-select"
-            options={marketOptions}
-            value={marketCode}
-            placeholder={marketPlaceholder}
-            isLoading={optionsLoading}
-            isDisabled={optionsLoading || marketOptions.length === 0}
-            onChange={handleMarketChange}
-          />
-        </div>
-
-        <div className="flex flex-col gap-6">
-          {boothList.map((booth, index) => (
-            <BoothGroupCard
-              key={booth.id}
-              booth={booth}
+        <div className="mb-6 flex flex-col gap-6">
+          {marketGroups.map((group, index) => (
+            <MarketGroupCard
+              key={group.id}
+              group={group}
               index={index}
               products={products}
-              boothOptions={boothOptions}
-              boothOptionsLoading={boothsLoading}
-              boothOptionsPlaceholder={boothPlaceholder}
-              canRemove={boothList.length > 1}
-              onChange={(patch) => updateBooth(booth.id, patch)}
-              onRemove={() => removeBooth(booth.id)}
+              marketOptions={marketOptionsForGroup(group.id)}
+              marketOptionsLoading={optionsLoading}
+              marketPlaceholder={marketPlaceholder}
+              boothOptions={boothOptionsForGroup(group)}
+              boothOptionsLoading={boothsLoadingSet.has(group.marketCode)}
+              boothOptionsPlaceholder={boothPlaceholderForGroup(group)}
+              canRemove={marketGroups.length > 1}
+              onMarketChange={(code) => handleMarketCodeChange(group.id, code)}
+              onBoothsChange={(booths) => updateMarketGroup(group.id, { booths })}
+              onRemove={() => removeMarketGroup(group.id)}
             />
           ))}
         </div>
 
-        <button type="button" className="gate-add-btn" onClick={addBooth}>
-          + เพิ่มแผง
+        <button type="button" className="gate-add-btn" onClick={addMarketGroup}>
+          + เพิ่มตลาด
         </button>
 
         <JsonPreview data={jsonPreview} />

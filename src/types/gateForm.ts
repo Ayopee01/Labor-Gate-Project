@@ -22,3 +22,17 @@ export function createEmptyBooth(id?: string): BoothFormState {
     items: [createEmptyItem(id ? `${id}-item-1` : undefined)],
   };
 }
+
+export interface MarketGroupFormState {
+  id: string;
+  marketCode: string;
+  booths: BoothFormState[];
+}
+
+export function createEmptyMarketGroup(id?: string): MarketGroupFormState {
+  return {
+    id: id ?? crypto.randomUUID(),
+    marketCode: "",
+    booths: [createEmptyBooth(id ? `${id}-booth-1` : undefined)],
+  };
+}

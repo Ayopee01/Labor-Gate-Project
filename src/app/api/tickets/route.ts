@@ -1,36 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Redis } from "@upstash/redis";
-import type { TicketPayload } from "@/types/gate";
-
-// รูปแบบ: YYYYMMDD (ตามเวลาไทย) + เลขรัน 6 หลัก เริ่มที่ 000001 เป็นใบแรกของวันนั้น
-function getBangkokDateStr(): string {
-  const now = new Date();
-  const bkkMs = now.getTime() + 7 * 60 * 60 * 1000 + now.getTimezoneOffset() * 60 * 1000;
-  const bkk = new Date(bkkMs);
-  const y = bkk.getFullYear();
-  const m = String(bkk.getMonth() + 1).padStart(2, "0");
-  const d = String(bkk.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
-}
-
-// หักตัวนับแบบ atomic (Redis INCR) ตรงนี้เท่านั้น เพื่อกันเลขที่ใบซ้ำกันเวลามีหลายเครื่อง/หลาย
-// browser ยิงเข้ามาพร้อมกัน — เลขที่ client ส่งมาใน payload เป็นแค่ค่า preview เท่านั้น เลขจริงถูก
-// กำหนดที่นี่แล้ว override ทับก่อนส่งต่อไป backend เสมอ
-async function claimTicketNumber(): Promise<string> {
-  const redisUrl = process.env.UPSTASH_REDIS_KV_REST_API_URL;
-  const redisToken = process.env.UPSTASH_REDIS_KV_REST_API_TOKEN;
-
-  if (!redisUrl || !redisToken) {
-    throw new Error("Missing required env var: UPSTASH_REDIS_KV_REST_API_URL or UPSTASH_REDIS_KV_REST_API_TOKEN");
-  }
-
-  const redis = new Redis({ url: redisUrl, token: redisToken });
-  const dateStr = getBangkokDateStr();
-  const key = `ticket-counter:${dateStr}`;
-  const seq = await redis.incr(key);
-  await redis.expire(key, 60 * 60 * 48);
-  return `${dateStr}${String(seq).padStart(6, "0")}`;
-}
+import { claimTicketNo, claimUniqueTicketNumber, getRedisClient } from "@/lib/ticketNumber";
+import type { TicketBatchRequest, TicketPayload, TicketResult } from "@/types/gate";
 
 export async function POST(request: NextRequest) {
   const baseUrl = process.env.GATE_BASE_URL;
@@ -41,35 +11,69 @@ export async function POST(request: NextRequest) {
     throw new Error("Missing required env var: GATE_BASE_URL, GATE_CLIENT_ID or GATE_CLIENT_SECRET");
   }
 
-  const payload = (await request.json()) as TicketPayload;
+  const body = (await request.json()) as TicketBatchRequest;
 
-  const ticketNumber = await claimTicketNumber();
-  payload.TicketNumber = ticketNumber;
-  payload.TicketNo = ticketNumber;
+  if (!body.Markets || body.Markets.length === 0) {
+    return NextResponse.json({ message: "ต้องมีอย่างน้อย 1 ตลาด" }, { status: 400 });
+  }
 
+  const redis = getRedisClient();
   const url = new URL("/api/gate/tickets", baseUrl);
+  const authHeader = "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  const ticketCreatedAt = now.toISOString().slice(0, 19) + "+07:00";
+
+  // TicketNumber (เลขที่บิล) สุ่ม 14 หลัก ใช้ตัวเดียวร่วมกันทุกตลาดในการยิงครั้งนี้ — ทั้ง TicketNumber
+  // และ TicketNo ที่ client ส่งมาเป็นแค่ค่า preview เท่านั้น เลขจริงถูกกำหนดที่นี่เสมอ กันเลขซ้ำ/เลขชน
+  // เวลามีคนกดพร้อมกันจากหลายเครื่อง
+  const ticketNumber = await claimUniqueTicketNumber(redis);
+  const results: TicketResult[] = [];
 
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64"),
-      },
-      body: JSON.stringify(payload),
-      cache: "no-store",
-    });
+    for (const market of body.Markets) {
+      // TicketNo อิงตามตลาดเสมอ (นับแยกเป็นตัวนับต่อตลาด) — 1 ตลาดมีได้หลายแผงแต่ได้ TicketNo เดียว
+      const ticketNo = await claimTicketNo(redis, market.MarketCode);
 
-    const text = await res.text();
-    if (!res.ok) {
-      throw new Error(`Gate ticket request failed: ${res.status} ${text}`);
+      const payload: TicketPayload = {
+        TicketNumber: ticketNumber,
+        TicketNo: ticketNo,
+        TicketCreatedAt: ticketCreatedAt,
+        BoothCount: market.Booths.length,
+        MarketCode: market.MarketCode,
+        DropoffPoint: body.DropoffPoint,
+        LicensePlate: body.LicensePlate,
+        LicensePlateProvince: body.LicensePlateProvince,
+        VehicleTypeCode: body.VehicleTypeCode,
+        VehicleTypeName: body.VehicleTypeName,
+        Booths: market.Booths,
+        Dispatch: body.Dispatch,
+      };
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authHeader,
+        },
+        body: JSON.stringify(payload),
+        cache: "no-store",
+      });
+
+      const text = await res.text();
+      if (!res.ok) {
+        throw new Error(`Gate ticket request failed for market ${market.MarketCode}: ${res.status} ${text}`);
+      }
+
+      results.push(text ? JSON.parse(text) : {});
     }
 
-    const data = text ? JSON.parse(text) : {};
-    return NextResponse.json(data);
+    return NextResponse.json({ TicketNumber: ticketNumber, Results: results });
   } catch (error) {
-    console.error("Failed to create gate ticket", error);
+    console.error("Failed to create gate ticket batch", error);
     const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ message }, { status: 502 });
+    // ส่ง Results ที่สำเร็จไปแล้วกลับไปด้วย เผื่อบางตลาดออกใบสำเร็จก่อนตลาดที่พังจะได้ไม่หายไปเฉย ๆ
+    return NextResponse.json({ message, TicketNumber: ticketNumber, Results: results }, { status: 502 });
   }
 }
