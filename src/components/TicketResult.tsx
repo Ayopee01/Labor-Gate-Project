@@ -1,5 +1,6 @@
 "use client";
 
+import Barcode from "react-barcode";
 import type { TicketBatchResponse, TicketResult as TicketResultData } from "@/types/gate";
 
 function InfoRow({
@@ -39,6 +40,15 @@ function TicketBill({ data, breakAfter }: { data: TicketResultData; breakAfter: 
           value={`${ticket.LicensePlate || "-"} (${ticket.LicensePlateProvince || "-"}) · ${ticket.VehicleTypeName || "-"}`}
           bordered
         />
+      </div>
+
+      <div className="mb-8 flex flex-col items-center gap-1 rounded-2xl border-2 border-border bg-white p-5">
+        <span className="mb-1 text-lg font-medium text-text-gray">Barcode สำหรับสแกน</span>
+        {ticket.TicketNo ? (
+          <Barcode value={ticket.TicketNo} format="CODE128" height={60} fontSize={18} margin={0} />
+        ) : (
+          <strong className="text-[1.15rem] text-text-dark">-</strong>
+        )}
       </div>
 
       <div className="mb-8">
